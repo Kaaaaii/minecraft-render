@@ -16,54 +16,59 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js (v18 for gl compatibility)
+      # --- Install correct system deps ---------------------------------------
+      - name: Install Python 3.10 for node-gyp compatibility
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3.10 python3.10-distutils
+          sudo ln -sf /usr/bin/python3.10 /usr/bin/python3
+
+      - name: Install OpenGL + build tools
+        run: |
+          sudo apt-get install -y build-essential make g++ \
+            libxi-dev libglu1-mesa-dev libglew-dev mesa-utils xvfb
+
+      # --- Setup Node environment --------------------------------------------
+      - name: Set up Node.js (v18 works best with gl)
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install build dependencies (for node-gyp / gl)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential python3 make g++ libxi-dev libglu1-mesa-dev libglew-dev mesa-utils xvfb
-
-      - name: Get Minecraft client JAR download URL
+      # --- Fetch Minecraft JAR -----------------------------------------------
+      - name: Get Minecraft client JAR URL
         id: get_client
         run: |
-          set -e
-          MANIFEST_URL="https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+          MANIFEST="https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
           VERSION="${{ github.event.inputs.version }}"
-
           if [ -z "$VERSION" ]; then
-            echo "Fetching latest release version..."
-            VERSION=$(curl -s $MANIFEST_URL | jq -r '.latest.release')
+            VERSION=$(curl -s $MANIFEST | jq -r '.latest.release')
           fi
-
-          VERSION_URL=$(curl -s $MANIFEST_URL | jq -r --arg VER "$VERSION" '.versions[] | select(.id==$VER) | .url')
+          VERSION_URL=$(curl -s $MANIFEST | jq -r --arg VER "$VERSION" '.versions[] | select(.id==$VER) | .url')
           CLIENT_URL=$(curl -s $VERSION_URL | jq -r '.downloads.client.url')
-
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "client_url=$CLIENT_URL" >> $GITHUB_OUTPUT
 
       - name: Download Minecraft client JAR
-        run: |
-          curl -L "${{ steps.get_client.outputs.client_url }}" -o minecraft-client.jar
+        run: curl -L "${{ steps.get_client.outputs.client_url }}" -o minecraft-client.jar
 
-      - name: Install minecraft-render
-        run: |
-          npm install -g minecraft-render
+      # --- Install renderer ---------------------------------------------------
+      - name: Install minecraft-render (global)
+        run: npm install -g minecraft-render
 
+      # --- Render -------------------------------------------------------------
       - name: Render Minecraft blocks
         run: |
           mkdir output
-          xvfb-run --auto-servernum npx minecraft-render minecraft-client.jar output --no-animation --verbose
+          xvfb-run --auto-servernum npx minecraft-render minecraft-client.jar output \
+            --no-animation --verbose --width 1000 --height 1000
 
+      # --- Publish ------------------------------------------------------------
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "render-${{ steps.get_client.outputs.version }}"
           name: "Block Render for Minecraft ${{ steps.get_client.outputs.version }}"
           body: "Automatically rendered from Minecraft client ${{ steps.get_client.outputs.version }}"
-          files: |
-            output/**
+          files: output/**
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
