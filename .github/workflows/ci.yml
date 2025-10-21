@@ -1,25 +1,62 @@
-name: Test
+name: Render Minecraft Client Blocks
 
-on: [push]
+on:
+  workflow_dispatch: # Run manually from GitHub Actions tab
+    inputs:
+      version:
+        description: "Minecraft version (leave blank for latest)"
+        required: false
+        default: ""
 
 jobs:
-  test:
+  render:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-        cache: 'npm'
-    - run: npm install
-    - run: sudo apt-get install xvfb
-    - run: xvfb-run --auto-servernum npm test
-    - name: Archive production artifacts
-      uses: actions/upload-artifact@v2
-      with:
-        name: test-result
-        path: |
-          test-data/*
-          !test-data/test.jar
-          !test-data/.gitignore
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Get Minecraft client JAR download URL
+        id: get_client
+        run: |
+          set -e
+          MANIFEST_URL="https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+          VERSION="${{ github.event.inputs.version }}"
+
+          if [ -z "$VERSION" ]; then
+            echo "Fetching latest release version..."
+            VERSION=$(curl -s $MANIFEST_URL | jq -r '.latest.release')
+          fi
+
+          VERSION_URL=$(curl -s $MANIFEST_URL | jq -r --arg VER "$VERSION" '.versions[] | select(.id==$VER) | .url')
+          CLIENT_URL=$(curl -s $VERSION_URL | jq -r '.downloads.client.url')
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "client_url=$CLIENT_URL" >> $GITHUB_OUTPUT
+
+      - name: Download Minecraft client JAR
+        run: |
+          curl -L "${{ steps.get_client.outputs.client_url }}" -o minecraft-client.jar
+
+      - name: Run block renderer
+        run: |
+          # Replace "renderer.jar" with the name of your rendering JAR
+          mkdir output
+          java -jar renderer.jar minecraft-client.jar output
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "render-${{ steps.get_client.outputs.version }}"
+          name: "Block Render for Minecraft ${{ steps.get_client.outputs.version }}"
+          body: "Automatically rendered from Minecraft client ${{ steps.get_client.outputs.version }}"
+          files: |
+            output/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
