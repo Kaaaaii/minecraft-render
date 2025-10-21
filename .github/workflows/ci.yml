@@ -1,7 +1,7 @@
 name: Render Minecraft Client Blocks
 
 on:
-  workflow_dispatch: # Run manually from GitHub Actions tab
+  workflow_dispatch:
     inputs:
       version:
         description: "Minecraft version (leave blank for latest)"
@@ -16,11 +16,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          distribution: temurin
-          java-version: 21
+          node-version: 20
 
       - name: Get Minecraft client JAR download URL
         id: get_client
@@ -44,11 +43,14 @@ jobs:
         run: |
           curl -L "${{ steps.get_client.outputs.client_url }}" -o minecraft-client.jar
 
-      - name: Run block renderer
+      - name: Install renderer
         run: |
-          # Replace "renderer.jar" with the name of your rendering JAR
+          npm install -g minecraft-render
+
+      - name: Render Minecraft blocks
+        run: |
           mkdir output
-          java -jar renderer.jar minecraft-client.jar output
+          npx minecraft-render minecraft-client.jar output --no-animation --verbose
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
