@@ -1,77 +1,25 @@
-name: Render Minecraft Client Blocks
+name: Test
 
-on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Minecraft version (leave blank for latest)"
-        required: false
-        default: ""
+on: [push]
 
 jobs:
-  render:
+  test:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # --- Install Python 3.10 for node-gyp compatibility
-      - name: Install Python 3.10
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3.10 python3.10-distutils
-          sudo ln -sf /usr/bin/python3.10 /usr/bin/python3
-
-      # --- Install OpenGL + build tools + xvfb
-      - name: Install system dependencies
-        run: |
-          sudo apt-get install -y build-essential make g++ \
-            libxi-dev libglu1-mesa-dev libglew-dev mesa-utils xvfb
-
-      # --- Setup Node.js
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      # --- Fetch Minecraft JAR
-      - name: Get Minecraft client JAR URL
-        id: get_client
-        run: |
-          MANIFEST="https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-          VERSION="${{ github.event.inputs.version }}"
-          if [ -z "$VERSION" ]; then
-            VERSION=$(curl -s $MANIFEST | jq -r '.latest.release')
-          fi
-          VERSION_URL=$(curl -s $MANIFEST | jq -r --arg VER "$VERSION" '.versions[] | select(.id==$VER) | .url')
-          CLIENT_URL=$(curl -s $VERSION_URL | jq -r '.downloads.client.url')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "client_url=$CLIENT_URL" >> $GITHUB_OUTPUT
-
-      - name: Download Minecraft client JAR
-        run: curl -L "${{ steps.get_client.outputs.client_url }}" -o minecraft-client.jar
-
-      # --- Install renderer
-      - name: Install minecraft-render globally
-        run: npm install -g minecraft-render
-
-      # --- Render Minecraft blocks (headless)
-      - name: Render Minecraft blocks
-        run: |
-          mkdir -p output
-          # Use xvfb-run to run in headless mode
-          xvfb-run --auto-servernum --server-args="-screen 0 1024x1024x24" \
-            npx minecraft-render minecraft-client.jar output \
-            --no-animation --verbose --width 1000 --height 1000
-
-      # --- Publish results
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "render-${{ steps.get_client.outputs.version }}"
-          name: "Block Render for Minecraft ${{ steps.get_client.outputs.version }}"
-          body: "Automatically rendered from Minecraft client ${{ steps.get_client.outputs.version }}"
-          files: output/**
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v2
+      with:
+        node-version: '14'
+        cache: 'npm'
+    - run: npm install
+    - run: sudo apt-get install xvfb
+    - run: xvfb-run --auto-servernum npm test
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-result
+        path: |
+          test-data/*
+          !test-data/test.jar
+          !test-data/.gitignore
