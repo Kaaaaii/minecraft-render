@@ -16,10 +16,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node.js (v18 for gl compatibility)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 18
+
+      - name: Install build dependencies (for node-gyp / gl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 make g++ libxi-dev libglu1-mesa-dev libglew-dev mesa-utils xvfb
 
       - name: Get Minecraft client JAR download URL
         id: get_client
@@ -43,14 +48,14 @@ jobs:
         run: |
           curl -L "${{ steps.get_client.outputs.client_url }}" -o minecraft-client.jar
 
-      - name: Install renderer
+      - name: Install minecraft-render
         run: |
           npm install -g minecraft-render
 
       - name: Render Minecraft blocks
         run: |
           mkdir output
-          npx minecraft-render minecraft-client.jar output --no-animation --verbose
+          xvfb-run --auto-servernum npx minecraft-render minecraft-client.jar output --no-animation --verbose
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
